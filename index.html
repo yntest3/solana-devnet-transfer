@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Solana Devnet SOL Transfer</title>
+<meta name="description" content="Solana Devnet 限定の SOL 送受信 Web アプリ（単一 HTML）" />
+<style>
+  :root {
+    --bg: #0b0d17; --card: #141827; --card2: #1b2033; --border: #2a3050;
+    --text: #e6e8f0; --muted: #8a90a8; --green: #14f195; --purple: #9945ff;
+    --red: #ff5c7a; --yellow: #ffc857; --blue: #4da3ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--card2);
+    color: var(--text); padding: 8px 14px; border-radius: 8px; transition: .15s;
+  }
+  button:hover:not(:disabled) { border-color: var(--purple); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: linear-gradient(90deg, var(--purple), #6c5ce7 60%, var(--green)); border: none; font-weight: 600; }
+  button.small { padding: 4px 10px; font-size: 12px; }
+  input {
+    font: inherit; width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: #0f1220; color: var(--text); outline: none;
+  }
+  input:focus { border-color: var(--purple); }
+  input.mono { font-family: var(--mono); font-size: 13px; }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 12px 0 6px; }
+  .mono { font-family: var(--mono); }
+  .muted { color: var(--muted); }
+
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 24px; border-bottom: 1px solid var(--border); background: #0e1120;
+    position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.devnet { background: rgba(255,200,87,.15); color: var(--yellow); border: 1px solid rgba(255,200,87,.4); }
+  .rpc-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .dot.err { background: var(--red); }
+  .spacer { flex: 1; }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 20px; display: grid; gap: 20px;
+         grid-template-columns: 400px 1fr; }
+  @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .full { grid-column: 1 / -1; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .balance { font-size: 30px; font-weight: 700; margin: 6px 0; }
+  .balance small { font-size: 14px; color: var(--muted); font-weight: 500; }
+  .addr-box { background: #0f1220; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+              font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  .wallet-list { display: grid; gap: 8px; margin-top: 8px; }
+  .wallet-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
+  .wallet-item img { width: 24px; height: 24px; border-radius: 6px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .msg { font-size: 12px; margin-top: 8px; min-height: 18px; }
+  .msg.err { color: var(--red); } .msg.warn { color: var(--yellow); } .msg.ok { color: var(--green); }
+  details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 12px; }
+
+  /* ---- Flow visualization ---- */
+  .stepper { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0; margin: 10px 0 18px; }
+  @media (max-width: 700px) { .stepper { grid-template-columns: repeat(4, 1fr); row-gap: 16px; } }
+  .step { position: relative; text-align: center; padding: 0 4px; }
+  .step::before {
+    content: ""; position: absolute; top: 17px; left: -50%; width: 100%; height: 3px; background: var(--border); z-index: 0;
+  }
+  .step:first-child::before { display: none; }
+  .step.done::before, .step.active::before { background: linear-gradient(90deg, var(--purple), var(--green)); }
+  .step .circle {
+    position: relative; z-index: 1; width: 36px; height: 36px; margin: 0 auto; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-weight: 700;
+    background: var(--card2); border: 2px solid var(--border); color: var(--muted); transition: .2s;
+  }
+  .step.active .circle { border-color: var(--yellow); color: var(--yellow); animation: pulse 1.1s infinite; }
+  .step.done .circle { border-color: var(--green); background: rgba(20,241,149,.15); color: var(--green); }
+  .step.error .circle { border-color: var(--red); background: rgba(255,92,122,.15); color: var(--red); }
+  .step.skipped .circle { opacity: .4; }
+  .step .label { font-size: 12px; margin-top: 6px; font-weight: 600; }
+  .step .time { font-size: 11px; color: var(--muted); font-family: var(--mono); min-height: 16px; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(255,200,87,.5); } 50% { box-shadow: 0 0 0 8px rgba(255,200,87,0); } }
+
+  .progress { height: 6px; background: var(--card2); border-radius: 999px; overflow: hidden; margin-bottom: 14px; }
+  .progress > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--purple), var(--green)); transition: width .3s; }
+  .progress.error > div { background: var(--red); }
+
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 4px 12px; font-size: 13px; margin-bottom: 14px; }
+  .kv div:nth-child(odd) { color: var(--muted); }
+  .kv div:nth-child(even) { font-family: var(--mono); word-break: break-all; }
+  .log { background: #0a0c16; border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+         height: 220px; overflow-y: auto; font-family: var(--mono); font-size: 12px; }
+  .log div { white-space: pre-wrap; word-break: break-all; }
+  .log .t { color: var(--muted); }
+  .log .ok { color: var(--green); } .log .err { color: var(--red); } .log .warn { color: var(--yellow); } .log .info { color: var(--blue); }
+
+  /* ---- History ---- */
+  .tabs { display: flex; gap: 6px; }
+  .tabs button.active { border-color: var(--green); color: var(--green); }
+  .table-wrap { overflow-x: auto; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 860px; }
+  th, td { padding: 9px 10px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  tr.new { animation: flash 2s; }
+  @keyframes flash { from { background: rgba(20,241,149,.15); } to { background: transparent; } }
+  .dir { font-weight: 700; }
+  .dir.out { color: var(--red); } .dir.in { color: var(--green); } .dir.self { color: var(--blue); } .dir.other { color: var(--muted); }
+  .amt.out { color: var(--red); } .amt.in { color: var(--green); }
+  .status { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .status.finalized { background: rgba(20,241,149,.15); color: var(--green); }
+  .status.confirmed { background: rgba(77,163,255,.15); color: var(--blue); }
+  .status.processed, .status.sending { background: rgba(255,200,87,.15); color: var(--yellow); }
+  .status.failed, .status.expired { background: rgba(255,92,122,.15); color: var(--red); }
+  .me { font-size: 10px; color: var(--purple); border: 1px solid var(--purple); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+  .empty { text-align: center; color: var(--muted); padding: 30px; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--muted); border-top-color: transparent;
+             border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+  #fatal { display: none; background: rgba(255,92,122,.12); border: 1px solid var(--red); color: var(--red);
+           padding: 12px 24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>◎ Solana SOL Transfer</h1>
+  <span class="badge devnet">DEVNET ONLY</span>
+  <div class="rpc-status"><span class="dot" id="rpcDot"></span><span id="rpcText">RPC 接続中…</span></div>
+  <div class="spacer"></div>
+  <div class="row" id="headerWallet"></div>
+</header>
+<div id="fatal"></div>
+
+<main>
+  <!-- ===== 左カラム: ウォレット & 送金フォーム ===== -->
+  <div style="display:grid; gap:20px; align-content:start;">
+    <section class="card" id="walletCard">
+      <h2>👛 ウォレット</h2>
+      <div id="walletDisconnected">
+        <div class="muted">接続するウォレットを選択してください。</div>
+        <div class="wallet-list" id="walletList"></div>
+        <div class="hint" id="walletHint"></div>
+      </div>
+      <div id="walletConnected" style="display:none">
+        <div class="muted" style="font-size:12px">接続中: <span id="walletName"></span></div>
+        <div class="balance"><span id="balance">-</span> <small>SOL</small></div>
+        <div class="addr-box" id="myAddress"></div>
+        <div class="row" style="margin-top:10px">
+          <button class="small" id="copyBtn">アドレスをコピー</button>
+          <button class="small" id="airdropBtn">1 SOL エアドロップ</button>
+          <a class="small" id="explorerAddr" target="_blank" rel="noopener">Explorer ↗</a>
+          <div class="spacer"></div>
+          <button class="small" id="disconnectBtn">切断</button>
+        </div>
+        <div class="msg" id="walletMsg"></div>
+      </div>
+      <details>
+        <summary>RPC 設定（Devnet のみ）</summary>
+        <label for="rpcInput">RPC エンドポイント</label>
+        <div class="row" style="flex-wrap:nowrap">
+          <input id="rpcInput" class="mono" value="https://api.devnet.solana.com" />
+          <button class="small" id="rpcApply">適用</button>
+        </div>
+        <div class="hint">ジェネシスハッシュを検証し、Devnet 以外の RPC は拒否します。</div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>📤 SOL を送金</h2>
+      <form id="sendForm" autocomplete="off">
+        <label for="toInput">送金先アドレス</label>
+        <input id="toInput" class="mono" placeholder="例: 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin" spellcheck="false" />
+        <label for="amountInput">送金数量 (SOL)</label>
+        <div class="row" style="flex-wrap:nowrap">
+          <input id="amountInput" inputmode="decimal" placeholder="0.1" />
+          <button type="button" class="small" id="maxBtn">最大</button>
+        </div>
+        <div class="msg" id="formMsg"></div>
+        <button type="submit" class="primary" id="sendBtn" style="width:100%; margin-top:6px" disabled>送金する</button>
+      </form>
+    </section>
+  </div>
+
+  <!-- ===== 右カラム: 送金フロー可視化 ===== -->
+  <section class="card">
+    <h2>⚡ 送金処理フロー <span class="muted" style="font-weight:400; font-size:12px" id="flowState">待機中</span></h2>
+    <div class="progress" id="progress"><div></div></div>
+    <div class="stepper" id="stepper"></div>
+    <div class="kv" id="txInfo"></div>
+    <div class="log" id="log"></div>
+  </section>
+
+  <!-- ===== 履歴 ===== -->
+  <section class="card full">
+    <div class="row">
+      <h2 style="margin:0">📜 取引履歴</h2>
+      <div class="tabs" id="tabs">
+        <button class="small active" data-filter="all">すべて</button>
+        <button class="small" data-filter="out">送信履歴</button>
+        <button class="small" data-filter="in">受信履歴</button>
+      </div>
+      <div class="spacer"></div>
+      <span class="muted" style="font-size:12px" id="historyMeta"></span>
+      <button class="small" id="refreshBtn" disabled>更新</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>日時</th><th>種別</th><th>送信元</th><th>送信先</th><th style="text-align:right">数量 (SOL)</th><th>手数料</th><th>状態</th><th>シグネチャ</th></tr>
+        </thead>
+        <tbody id="historyBody"><tr><td colspan="8" class="empty">ウォレットを接続すると履歴が表示されます</td></tr></tbody>
+      </table>
+    </div>
+    <div style="text-align:center; margin-top:12px"><button class="small" id="moreBtn" style="display:none">さらに読み込む</button></div>
+  </section>
+</main>
+<footer>Solana Devnet 専用 — Devnet の SOL に金銭的価値はありません。</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/@solana/web3.js@1.99.0/lib/index.iife.min.js"></script>
+<script>
+// CDN フォールバック
+if (!window.solanaWeb3) document.write('<script src="https://unpkg.com/@solana/web3.js@1.99.0/lib/index.iife.min.js"><\/script>');
+</script>
+<script>
+(() => {
+'use strict';
+
+const $ = (id) => document.getElementById(id);
+if (!window.solanaWeb3) {
+  $('fatal').style.display = 'block';
+  $('fatal').textContent = '@solana/web3.js を CDN から読み込めませんでした。ネットワーク接続を確認してください。';
+  return;
+}
+const { Connection, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } = window.solanaWeb3;
+
+const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
+const DEVNET_CHAIN = 'solana:devnet';
+const LAMPORTS = 1_000_000_000n;
+const HISTORY_PAGE = 20;
+
+const state = {
+  conn: null,
+  wallet: null,       // 接続中ウォレット（アダプタ）
+  pubkey: null,       // PublicKey
+  balance: null,      // lamports (number)
+  rentMin: 890880,    // 0 byte アカウントの rent-exempt 最小値（起動時に取得し直す）
+  subs: [],           // WebSocket 購読 ID
+  txs: new Map(),     // signature -> 履歴エントリ
+  oldestSig: null,
+  hasMore: false,
+  filter: 'all',
+  sending: false,
+  newSigs: new Set(),
+};
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const short = (a) => (a && a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a || '-');
+const explorer = (kind, v) => `https://explorer.solana.com/${kind}/${v}?cluster=devnet`;
+const fmtTime = (d) => d.toLocaleTimeString('ja-JP', { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+
+function solToLamports(str) {
+  str = str.trim();
+  if (!/^\d+(\.\d{1,9})?$/.test(str)) throw new Error('数量は正の数（小数点以下 9 桁まで）で入力してください');
+  const [i, f = ''] = str.split('.');
+  return BigInt(i) * LAMPORTS + BigInt((f + '000000000').slice(0, 9));
+}
+function lamportsToSol(l) {
+  let v = BigInt(l);
+  const neg = v < 0n; if (neg) v = -v;
+  const f = (v % LAMPORTS).toString().padStart(9, '0').replace(/0+$/, '');
+  return (neg ? '-' : '') + (v / LAMPORTS).toLocaleString('en-US') + (f ? '.' + f : '');
+}
+function setMsg(el, text, kind = '') { el.className = 'msg ' + kind; el.textContent = text; }
+
+// ============================================================
+// RPC 接続（Devnet 検証つき）
+// ============================================================
+let slotTimer = null;
+async function setupConnection(url) {
+  $('rpcDot').className = 'dot';
+  $('rpcText').textContent = 'RPC 接続中…';
+  const conn = new Connection(url, { commitment: 'confirmed' });
+  const genesis = await conn.getGenesisHash();
+  if (genesis !== DEVNET_GENESIS) throw new Error('この RPC は Devnet ではありません（genesis: ' + genesis + '）');
+  state.conn = conn;
+  try { state.rentMin = await conn.getMinimumBalanceForRentExemption(0); } catch (_) {}
+  $('rpcDot').className = 'dot ok';
+  clearInterval(slotTimer);
+  const tick = async () => {
+    try { $('rpcText').textContent = `Devnet ・ slot ${(await conn.getSlot()).toLocaleString()}`; }
+    catch (e) { $('rpcDot').className = 'dot err'; $('rpcText').textContent = 'RPC エラー'; }
+  };
+  tick(); slotTimer = setInterval(tick, 8000);
+}
+
+// ============================================================
+// ウォレット検出（Wallet Standard + 従来の注入型プロバイダ）
+// ============================================================
+const standardWallets = [];
+function registerStandard(...wallets) {
+  for (const w of wallets) {
+    const f = w.features || {};
+    const isSolana = (w.chains || []).some((c) => c.startsWith('solana:'));
+    if (isSolana && f['standard:connect'] && f['solana:signTransaction'] && !standardWallets.includes(w)) standardWallets.push(w);
+  }
+  renderWalletList();
+  return () => {};
+}
+const wsApi = Object.freeze({ register: registerStandard });
+window.addEventListener('wallet-standard:register-wallet', (e) => { try { e.detail(wsApi); } catch (_) {} });
+window.dispatchEvent(new CustomEvent('wallet-standard:app-ready', { detail: wsApi }));
+
+function standardAdapter(w) {
+  let account = null;
+  return {
+    name: w.name, icon: w.icon,
+    async connect() {
+      const { accounts } = await w.features['standard:connect'].connect();
+      const list = accounts || w.accounts || [];
+      account = list.find((a) => (a.chains || []).some((c) => c.startsWith('solana:'))) || list[0];
+      if (!account) throw new Error('アカウントが取得できませんでした');
+      return account.address;
+    },
+    async disconnect() { await w.features['standard:disconnect']?.disconnect(); },
+    async signTransaction(vtx) {
+      const [out] = await w.features['solana:signTransaction'].signTransaction({
+        account, transaction: vtx.serialize(), chain: DEVNET_CHAIN,
+      });
+      return out.signedTransaction;
+    },
+    onChange(cb) {
+      return w.features['standard:events']?.on('change', ({ accounts }) => {
+        if (!accounts) return;
+        account = accounts[0] || null;
+        cb(account ? account.address : null);
+      });
+    },
+  };
+}
+function legacyAdapter(name, p) {
+  return {
+    name, icon: null,
+    async connect() {
+      const res = await p.connect();
+      const pk = res?.publicKey || p.publicKey;
+      if (!pk) throw new Error('アカウントが取得できませんでした');
+      return pk.toString();
+    },
+    async disconnect() { await p.disconnect?.(); },
+    async signTransaction(vtx) { return (await p.signTransaction(vtx)).serialize(); },
+    onChange(cb) {
+      const h = (pk) => cb(pk ? pk.toString() : null);
+      const d = () => cb(null);
+      p.on?.('accountChanged', h); p.on?.('disconnect', d);
+      return () => { p.off?.('accountChanged', h); p.off?.('disconnect', d); };
+    },
+  };
+}
+function availableWallets() {
+  const list = standardWallets.map((w) => ({ name: w.name, icon: w.icon, make: () => standardAdapter(w) }));
+  const has = (n) => list.some((x) => x.name.toLowerCase().includes(n));
+  if (window.phantom?.solana?.isPhantom && !has('phantom')) list.push({ name: 'Phantom', make: () => legacyAdapter('Phantom', window.phantom.solana) });
+  if (window.solflare?.isSolflare && !has('solflare')) list.push({ name: 'Solflare', make: () => legacyAdapter('Solflare', window.solflare) });
+  if (!list.length && window.solana?.connect) list.push({ name: 'Injected Wallet', make: () => legacyAdapter('Injected Wallet', window.solana) });
+  return list;
+}
+function renderWalletList() {
+  const list = availableWallets();
+  const box = $('walletList');
+  box.innerHTML = '';
+  list.forEach((w) => {
+    const b = document.createElement('button');
+    b.className = 'wallet-item';
+    b.innerHTML = (w.icon ? `<img src="${esc(w.icon)}" alt="">` : '<span style="width:24px;text-align:center">👛</span>') + `<span>${esc(w.name)}</span>`;
+    b.onclick = () => connectWallet(w);
+    box.appendChild(b);
+  });
+  $('walletHint').innerHTML = list.length
+    ? 'ウォレット側のネットワークも Devnet に切り替えておくと残高表示などが一致します。'
+    : 'Solana ウォレットが見つかりません。<a href="https://phantom.com/" target="_blank" rel="noopener">Phantom</a> や <a href="https://solflare.com/" target="_blank" rel="noopener">Solflare</a> をインストールしてください。'
+      + (location.protocol === 'file:' ? '<br><b style="color:var(--yellow)">file:// で開いているとウォレットは注入されません。README の手順でローカルサーバーから開いてください。</b>' : '');
+}
+
+// ============================================================
+// ウォレット接続・残高
+// ============================================================
+let unbindWallet = null;
+async function connectWallet(entry) {
+  if (!state.conn) return alert('RPC に接続できていません');
+  const adapter = entry.make();
+  try {
+    const address = await adapter.connect();
+    state.wallet = adapter;
+    unbindWallet = adapter.onChange((addr) => {
+      if (!addr) disconnectWallet(false);
+      else if (addr !== state.pubkey?.toBase58()) onAccount(addr);
+    });
+    await onAccount(address);
+  } catch (e) {
+    $('walletHint').innerHTML = `<span style="color:var(--red)">接続失敗: ${esc(e.message || e)}</span>`;
+  }
+}
+async function onAccount(address) {
+  await unsubscribeAll();
+  state.pubkey = new PublicKey(address);
+  state.txs.clear(); state.oldestSig = null; state.hasMore = false;
+  $('walletDisconnected').style.display = 'none';
+  $('walletConnected').style.display = '';
+  $('walletName').textContent = state.wallet.name;
+  $('myAddress').textContent = address;
+  $('explorerAddr').href = explorer('address', address);
+  $('headerWallet').innerHTML = `<span class="mono" style="font-size:12px">${esc(short(address))}</span>`;
+  $('sendBtn').disabled = false; $('refreshBtn').disabled = false;
+  setMsg($('walletMsg'), '');
+  await refreshBalance();
+  // 残高をリアルタイム購読し、変化があれば履歴も更新（受信の検知）
+  state.subs.push(state.conn.onAccountChange(state.pubkey, (info) => {
+    state.balance = info.lamports; renderBalance();
+    scheduleHistorySync();
+  }, 'confirmed'));
+  loadHistory(true);
+}
+async function disconnectWallet(callAdapter = true) {
+  await unsubscribeAll();
+  unbindWallet?.(); unbindWallet = null;
+  if (callAdapter) { try { await state.wallet?.disconnect(); } catch (_) {} }
+  state.wallet = null; state.pubkey = null; state.balance = null; state.txs.clear();
+  $('walletDisconnected').style.display = ''; $('walletConnected').style.display = 'none';
+  $('headerWallet').innerHTML = '';
+  $('sendBtn').disabled = true; $('refreshBtn').disabled = true; $('moreBtn').style.display = 'none';
+  $('historyMeta').textContent = '';
+  $('historyBody').innerHTML = '<tr><td colspan="8" class="empty">ウォレットを接続すると履歴が表示されます</td></tr>';
+  renderWalletList();
+}
+async function unsubscribeAll() {
+  const subs = state.subs; state.subs = [];
+  for (const id of subs) { try { await state.conn.removeAccountChangeListener(id); } catch (_) {} }
+}
+async function refreshBalance() {
+  if (!state.pubkey) return;
+  try { state.balance = await state.conn.getBalance(state.pubkey, 'confirmed'); renderBalance(); }
+  catch (e) { setMsg($('walletMsg'), '残高取得に失敗: ' + e.message, 'err'); }
+}
+function renderBalance() { $('balance').textContent = state.balance == null ? '-' : lamportsToSol(state.balance); }
+
+$('disconnectBtn').onclick = () => disconnectWallet(true);
+$('copyBtn').onclick = async () => {
+  await navigator.clipboard.writeText(state.pubkey.toBase58());
+  setMsg($('walletMsg'), 'アドレスをコピーしました', 'ok');
+};
+$('airdropBtn').onclick = async () => {
+  const btn = $('airdropBtn'); btn.disabled = true;
+  setMsg($('walletMsg'), 'エアドロップを要求中…');
+  try {
+    const sig = await state.conn.requestAirdrop(state.pubkey, Number(LAMPORTS));
+    const bh = await state.conn.getLatestBlockhash();
+    await state.conn.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+    setMsg($('walletMsg'), '1 SOL を受け取りました', 'ok');
+    refreshBalance(); scheduleHistorySync();
+  } catch (e) {
+    $('walletMsg').className = 'msg err';
+    $('walletMsg').innerHTML = `エアドロップ失敗（レート制限の可能性）: ${esc(e.message)}<br>` +
+      '<a href="https://faucet.solana.com/" target="_blank" rel="noopener">faucet.solana.com</a> から取得してください。';
+  } finally { btn.disabled = false; }
+};
+$('rpcApply').onclick = async () => {
+  const url = $('rpcInput').value.trim();
+  try {
+    const wasConnected = state.pubkey?.toBase58();
+    await unsubscribeAll();
+    await setupConnection(url);
+    log(`RPC を切り替えました: ${url}`, 'info');
+    if (wasConnected) onAccount(wasConnected);
+  } catch (e) {
+    $('rpcDot').className = 'dot err'; $('rpcText').textContent = 'RPC エラー';
+    alert('RPC の設定に失敗しました: ' + e.message);
+  }
+};
+
+// ============================================================
+// 送金フロー可視化
+// ============================================================
+const STEPS = [
+  { id: 'validate', label: '入力検証' },
+  { id: 'build', label: 'Tx 構築' },
+  { id: 'simulate', label: 'シミュレーション' },
+  { id: 'sign', label: 'ウォレット署名' },
+  { id: 'send', label: 'ネットワーク送信' },
+  { id: 'processed', label: 'Processed' },
+  { id: 'confirmed', label: 'Confirmed' },
+  { id: 'finalized', label: 'Finalized' },
+];
+let flowT0 = 0;
+function resetFlow() {
+  flowT0 = performance.now();
+  $('stepper').innerHTML = STEPS.map((s, i) =>
+    `<div class="step" id="step-${s.id}"><div class="circle">${i + 1}</div><div class="label">${s.label}</div><div class="time"></div></div>`).join('');
+  $('progress').className = 'progress';
+  $('progress').firstElementChild.style.width = '0';
+  $('txInfo').innerHTML = '';
+  $('log').innerHTML = '';
+}
+function stepState(id, cls, note) {
+  const el = $('step-' + id); if (!el) return;
+  el.className = 'step ' + cls;
+  const idx = STEPS.findIndex((s) => s.id === id);
+  if (cls === 'done') el.querySelector('.circle').textContent = '✓';
+  if (cls === 'error') el.querySelector('.circle').textContent = '✕';
+  if (cls === 'done' || cls === 'error') {
+    el.querySelector('.time').textContent = note ?? `+${Math.round(performance.now() - flowT0)}ms`;
+    $('progress').firstElementChild.style.width = `${((idx + 1) / STEPS.length) * 100}%`;
+  }
+  if (cls === 'error') $('progress').className = 'progress error';
+}
+function setFlowState(text) { $('flowState').textContent = text; }
+function setInfo(key, html) {
+  let row = document.querySelector(`[data-k="${key}"]`);
+  if (!row) {
+    $('txInfo').insertAdjacentHTML('beforeend', `<div>${esc(key)}</div><div data-k="${esc(key)}"></div>`);
+    row = document.querySelector(`[data-k="${key}"]`);
+  }
+  row.innerHTML = html;
+}
+function log(text, kind = '') {
+  const el = $('log');
+  el.insertAdjacentHTML('beforeend', `<div><span class="t">[${fmtTime(new Date())}]</span> <span class="${kind}">${esc(text)}</span></div>`);
+  el.scrollTop = el.scrollHeight;
+}
+resetFlow();
+log('待機中: 送金先と数量を入力して「送金する」を押してください');
+
+// ============================================================
+// 送金
+// ============================================================
+$('maxBtn').onclick = () => {
+  if (state.balance == null) return;
+  const max = BigInt(state.balance) - 5000n; // 署名 1 つ分の基本手数料
+  $('amountInput').value = max > 0n ? lamportsToSol(max).replace(/,/g, '') : '0';
+};
+
+$('sendForm').onsubmit = async (ev) => {
+  ev.preventDefault();
+  if (state.sending || !state.pubkey) return;
+  state.sending = true; $('sendBtn').disabled = true;
+  setMsg($('formMsg'), '');
+  resetFlow();
+  const conn = state.conn, from = state.pubkey;
+  let current = 'validate', signature = null;
+  try {
+    // ---- 1. 入力検証 ----
+    setFlowState('入力を検証中…'); stepState('validate', 'active');
+    let to;
+    try { to = new PublicKey($('toInput').value.trim()); } catch (_) { throw new Error('送金先アドレスが不正です（Base58 の公開鍵を入力してください）'); }
+    const lamports = solToLamports($('amountInput').value);
+    if (lamports <= 0n) throw new Error('数量は 0 より大きくしてください');
+    if (to.equals(from)) log('送金先が自分自身のアドレスです（自己送金）', 'warn');
+    if (!PublicKey.isOnCurve(to.toBytes())) log('送金先は ed25519 曲線外のアドレス（PDA）です', 'warn');
+    const [balance, toInfo] = await Promise.all([conn.getBalance(from, 'confirmed'), conn.getAccountInfo(to, 'confirmed')]);
+    state.balance = balance; renderBalance();
+    if (!toInfo && lamports < BigInt(state.rentMin))
+      throw new Error(`送金先は未作成のアカウントです。最低 ${lamportsToSol(state.rentMin)} SOL（rent-exempt 最小額）以上を送金してください`);
+    log(`送金元: ${from.toBase58()}`);
+    log(`送金先: ${to.toBase58()}${toInfo ? '' : '（新規アカウント）'}`);
+    log(`数量: ${lamportsToSol(lamports)} SOL (${lamports} lamports)`);
+    setInfo('送金元', `<a href="${explorer('address', from.toBase58())}" target="_blank" rel="noopener">${esc(from.toBase58())}</a>`);
+    setInfo('送金先', `<a href="${explorer('address', to.toBase58())}" target="_blank" rel="noopener">${esc(to.toBase58())}</a>`);
+    setInfo('数量', `${lamportsToSol(lamports)} SOL`);
+    stepState('validate', 'done');
+
+    // ---- 2. トランザクション構築 ----
+    current = 'build'; setFlowState('トランザクションを構築中…'); stepState('build', 'active');
+    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash('confirmed');
+    const message = new TransactionMessage({
+      payerKey: from, recentBlockhash: blockhash,
+      instructions: [SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports: Number(lamports) })],
+    }).compileToLegacyMessage();
+    const fee = (await conn.getFeeForMessage(message, 'confirmed')).value ?? 5000;
+    const remain = BigInt(balance) - lamports - BigInt(fee);
+    if (remain < 0n) throw new Error(`残高不足です（残高 ${lamportsToSol(balance)} SOL / 必要 ${lamportsToSol(lamports + BigInt(fee))} SOL）`);
+    if (remain > 0n && remain < BigInt(state.rentMin))
+      throw new Error(`送金後の残高が rent-exempt 最小額（${lamportsToSol(state.rentMin)} SOL）未満になります。全額送金するか数量を減らしてください`);
+    const vtx = new VersionedTransaction(message);
+    log(`recentBlockhash: ${blockhash}`);
+    log(`lastValidBlockHeight: ${lastValidBlockHeight}`);
+    log(`推定手数料: ${fee} lamports`);
+    setInfo('Blockhash', esc(blockhash));
+    setInfo('手数料', `${lamportsToSol(fee)} SOL`);
+    stepState('build', 'done');
+
+    // ---- 3. シミュレーション ----
+    current = 'simulate'; setFlowState('シミュレーション中…'); stepState('simulate', 'active');
+    const sim = await conn.simulateTransaction(vtx, { sigVerify: false, commitment: 'confirmed' });
+    (sim.value.logs || []).forEach((l) => log('  ' + l, 'muted'));
+    if (sim.value.err) throw new Error('シミュレーション失敗: ' + JSON.stringify(sim.value.err));
+    log(`シミュレーション成功（${sim.value.unitsConsumed ?? '?'} CU）`, 'ok');
+    stepState('simulate', 'done');
+
+    // ---- 4. ウォレット署名 ----
+    current = 'sign'; setFlowState('ウォレットで署名してください…'); stepState('sign', 'active');
+    log(`${state.wallet.name} に署名を要求しました。ウォレットのポップアップを確認してください`, 'info');
+    const raw = await state.wallet.signTransaction(vtx);
+    log(`署名完了（${raw.length} bytes）`, 'ok');
+    stepState('sign', 'done');
+
+    // ---- 5. ネットワーク送信 ----
+    current = 'send'; setFlowState('Devnet に送信中…'); stepState('send', 'active');
+    signature = await conn.sendRawTransaction(raw, { skipPreflight: false, preflightCommitment: 'confirmed', maxRetries: 5 });
+    log(`送信完了 signature: ${signature}`, 'ok');
+    setInfo('シグネチャ', `<a href="${explorer('tx', signature)}" target="_blank" rel="noopener">${esc(signature)}</a>`);
+    stepState('send', 'done');
+    addPendingTx(signature, from.toBase58(), to.toBase58(), lamports, fee);
+
+    // ---- 6〜8. 確定待ち ----
+    current = 'processed';
+    const result = await trackConfirmation(signature, lastValidBlockHeight, (s) => { current = s; });
+    const total = ((performance.now() - flowT0) / 1000).toFixed(2);
+    setInfo('合計時間', `${total} 秒`);
+    if (result === 'finalized') {
+      setFlowState(`完了（${total} 秒）`);
+      log(`Finalized に到達しました。送金完了 🎉`, 'ok');
+      setMsg($('formMsg'), '送金が完了しました', 'ok');
+    }
+  } catch (e) {
+    const msg = e?.message || String(e);
+    stepState(current, 'error');
+    STEPS.slice(STEPS.findIndex((s) => s.id === current) + 1).forEach((s) => stepState(s.id, 'skipped'));
+    setFlowState('エラー');
+    const rejected = /reject|denied|cancel/i.test(msg);
+    log(rejected ? 'ユーザーが署名を拒否しました' : 'エラー: ' + msg, 'err');
+    if (e?.logs) e.logs.forEach((l) => log('  ' + l, 'err'));
+    setMsg($('formMsg'), rejected ? '署名がキャンセルされました' : msg, 'err');
+    const t = signature && state.txs.get(signature);
+    if (t && !['failed', 'expired'].includes(t.status)) updateTxStatus(signature, 'failed');
+  } finally {
+    state.sending = false; $('sendBtn').disabled = !state.pubkey;
+    refreshBalance();
+  }
+};
+
+// getSignatureStatuses をポーリングし、Processed → Confirmed → Finalized の到達を可視化
+async function trackConfirmation(sig, lastValidBlockHeight, onStage) {
+  const order = ['processed', 'confirmed', 'finalized'];
+  let reached = -1, n = 0;
+  stepState('processed', 'active'); setFlowState('ブロックへの取り込み待ち…');
+  while (true) {
+    const { value: [st] } = await state.conn.getSignatureStatuses([sig]);
+    if (st) {
+      if (st.err) {
+        updateTxStatus(sig, 'failed');
+        throw new Error('トランザクションがオンチェーンで失敗しました: ' + JSON.stringify(st.err));
+      }
+      const idx = order.indexOf(st.confirmationStatus);
+      while (reached < idx) {
+        reached++;
+        const stage = order[reached];
+        stepState(stage, 'done');
+        log(`${stage} に到達（slot ${st.slot}${stage === 'finalized' ? '' : `, confirmations ${st.confirmations ?? '-'}`}）`, 'ok');
+        setInfo('Slot', String(st.slot));
+        updateTxStatus(sig, stage);
+        const next = order[reached + 1];
+        if (next) {
+          onStage(next); stepState(next, 'active');
+          setFlowState(next === 'confirmed' ? 'クラスタの投票（承認）待ち…' : '最終確定（ルート化）待ち…');
+        }
+      }
+      if (reached === 2) return 'finalized';
+    } else if (++n % 4 === 0) {
+      const height = await state.conn.getBlockHeight('confirmed');
+      if (height > lastValidBlockHeight) {
+        updateTxStatus(sig, 'expired');
+        throw new Error('ブロックハッシュの有効期限が切れました（トランザクションは取り込まれませんでした）');
+      }
+    }
+    await sleep(500);
+  }
+}
+
+// ============================================================
+// 履歴（オンチェーンから取得）
+// ============================================================
+const STATUS_LABEL = {
+  sending: '送信中', processed: 'Processed', confirmed: 'Confirmed', finalized: 'Finalized', failed: '失敗', expired: '期限切れ',
+};
+
+function addPendingTx(signature, src, dst, lamports, fee) {
+  state.txs.set(signature, {
+    signature, blockTime: Math.floor(Date.now() / 1000), slot: Infinity, status: 'sending', fee,
+    transfers: [{ src, dst, lamports: Number(lamports) }], pending: true,
+  });
+  state.newSigs.add(signature);
+  renderHistory();
+}
+function updateTxStatus(sig, status) {
+  const t = state.txs.get(sig);
+  if (t) { t.status = status; renderHistory(); }
+  if (status === 'finalized' || status === 'confirmed') scheduleHistorySync();
+}
+
+// トランザクションから「自分が関わる SOL 移動」を抽出
+function parseTx(sigInfo, tx, me) {
+  const entry = {
+    signature: sigInfo.signature,
+    blockTime: tx?.blockTime ?? sigInfo.blockTime,
+    slot: sigInfo.slot,
+    status: sigInfo.err ? 'failed' : (sigInfo.confirmationStatus || 'confirmed'),
+    fee: tx?.meta?.fee ?? null,
+    feePayer: null,
+    transfers: [],
+    delta: null,
+  };
+  if (!tx) return entry;
+  const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
+  entry.feePayer = keys[0];
+  const ixs = [...tx.transaction.message.instructions];
+  (tx.meta?.innerInstructions || []).forEach((ii) => ixs.push(...ii.instructions));
+  for (const ix of ixs) {
+    if (ix.program !== 'system' || !ix.parsed) continue;
+    const { type, info } = ix.parsed;
+    if (type === 'transfer' || type === 'transferWithSeed') {
+      if (info.source === me || info.destination === me) entry.transfers.push({ src: info.source, dst: info.destination, lamports: info.lamports });
+    } else if (type === 'createAccount' && (info.source === me || info.newAccount === me)) {
+      entry.transfers.push({ src: info.source, dst: info.newAccount, lamports: info.lamports });
+    }
+  }
+  const i = keys.indexOf(me);
+  if (i >= 0 && tx.meta) entry.delta = tx.meta.postBalances[i] - tx.meta.preBalances[i];
+  return entry;
+}
+
+async function fetchEntries(sigInfos) {
+  const me = state.pubkey.toBase58();
+  const out = [];
+  for (let i = 0; i < sigInfos.length; i += 10) {
+    const chunk = sigInfos.slice(i, i + 10);
+    const txs = await state.conn.getParsedTransactions(chunk.map((s) => s.signature), { maxSupportedTransactionVersion: 0, commitment: 'confirmed' });
+    chunk.forEach((s, j) => out.push(parseTx(s, txs[j], me)));
+  }
+  return out;
+}
+
+let historyLoading = false;
+async function loadHistory(reset) {
+  if (!state.pubkey || historyLoading) return;
+  historyLoading = true;
+  const owner = state.pubkey;
+  $('historyMeta').innerHTML = '<span class="spinner"></span> 読み込み中…';
+  try {
+    const opts = { limit: HISTORY_PAGE };
+    if (!reset && state.oldestSig) opts.before = state.oldestSig;
+    const sigs = await state.conn.getSignaturesForAddress(owner, opts, 'confirmed');
+    const entries = await fetchEntries(sigs);
+    if (!state.pubkey || !owner.equals(state.pubkey)) return; // 途中でアカウントが変わった
+    entries.forEach((e) => state.txs.set(e.signature, e));
+    if (sigs.length) state.oldestSig = sigs[sigs.length - 1].signature;
+    state.hasMore = sigs.length === HISTORY_PAGE;
+    renderHistory();
+    $('historyMeta').textContent = `最終更新 ${new Date().toLocaleTimeString('ja-JP')}`;
+  } catch (e) {
+    $('historyMeta').innerHTML = `<span style="color:var(--red)">履歴取得に失敗: ${esc(e.message)}</span>`;
+  } finally { historyLoading = false; }
+}
+
+// 新着取引の取得と、未確定の取引の状態更新
+let syncTimer = null;
+function scheduleHistorySync() { clearTimeout(syncTimer); syncTimer = setTimeout(syncHistory, 1200); }
+async function syncHistory() {
+  if (!state.pubkey) return;
+  if (historyLoading) return scheduleHistorySync();
+  historyLoading = true;
+  const owner = state.pubkey;
+  try {
+    const known = [...state.txs.values()].filter((t) => !t.pending).sort((a, b) => b.slot - a.slot);
+    const opts = { limit: HISTORY_PAGE };
+    if (known[0]) opts.until = known[0].signature;
+    const sigs = await state.conn.getSignaturesForAddress(owner, opts, 'confirmed');
+    const entries = await fetchEntries(sigs);
+    // Finalized でないものはステータスを再確認
+    const unsettled = [...state.txs.values()].filter((t) => !['finalized', 'failed', 'expired'].includes(t.status) && !t.pending);
+    let statuses = [];
+    if (unsettled.length) statuses = (await state.conn.getSignatureStatuses(unsettled.map((t) => t.signature))).value;
+    if (!state.pubkey || !owner.equals(state.pubkey)) return;
+    entries.forEach((e) => {
+      const prev = state.txs.get(e.signature);
+      if (!prev || prev.pending) {
+        if (!prev) state.newSigs.add(e.signature);
+        // ローカルで追跡中のほうが進んでいる場合はそちらを優先
+        if (prev && prev.status === 'finalized') e.status = 'finalized';
+      }
+      state.txs.set(e.signature, e);
+    });
+    unsettled.forEach((t, i) => {
+      const st = statuses[i];
+      if (st) t.status = st.err ? 'failed' : st.confirmationStatus;
+    });
+    if (!state.oldestSig && sigs.length) { state.oldestSig = sigs[sigs.length - 1].signature; state.hasMore = sigs.length === HISTORY_PAGE; }
+    renderHistory();
+    $('historyMeta').textContent = `最終更新 ${new Date().toLocaleTimeString('ja-JP')}`;
+    if (unsettled.some((t) => t.status !== 'finalized')) setTimeout(scheduleHistorySync, 4000);
+  } catch (e) {
+    $('historyMeta').innerHTML = `<span style="color:var(--red)">履歴更新に失敗: ${esc(e.message)}</span>`;
+  } finally { historyLoading = false; }
+}
+
+function addrCell(a, me) {
+  if (!a) return '<span class="muted">-</span>';
+  return `<a class="mono" href="${explorer('address', a)}" target="_blank" rel="noopener" title="${esc(a)}">${esc(short(a))}</a>` + (a === me ? '<span class="me">自分</span>' : '');
+}
+function renderHistory() {
+  if (!state.pubkey) return;
+  const me = state.pubkey.toBase58();
+  const rows = [];
+  const sorted = [...state.txs.values()].sort((a, b) => (b.slot - a.slot) || ((b.blockTime || 0) - (a.blockTime || 0)));
+  for (const t of sorted) {
+    const date = t.blockTime ? new Date(t.blockTime * 1000).toLocaleString('ja-JP') : '-';
+    const status = `<span class="status ${t.status}">${t.status === 'sending' ? '<span class="spinner" style="width:9px;height:9px"></span> ' : ''}${STATUS_LABEL[t.status] || t.status}</span>`;
+    const sigCell = `<a class="mono" href="${explorer('tx', t.signature)}" target="_blank" rel="noopener" title="${esc(t.signature)}">${esc(t.signature.slice(0, 8))}…</a>`;
+    const fee = t.fee != null && (t.pending || t.feePayer === me) ? lamportsToSol(t.fee) : '<span class="muted">-</span>';
+    const items = t.transfers.length ? t.transfers : [{ src: null, dst: null, lamports: null }];
+    for (const tr of items) {
+      let dir, dirLabel, sign = '';
+      if (tr.lamports == null) { dir = 'other'; dirLabel = 'その他'; }
+      else if (tr.src === me && tr.dst === me) { dir = 'self'; dirLabel = '自己送金'; }
+      else if (tr.src === me) { dir = 'out'; dirLabel = '送信'; sign = '-'; }
+      else { dir = 'in'; dirLabel = '受信'; sign = '+'; }
+      if (state.filter === 'out' && dir !== 'out' && dir !== 'self') continue;
+      if (state.filter === 'in' && dir !== 'in' && dir !== 'self') continue;
+      const amount = tr.lamports != null
+        ? `<span class="amt ${dir}">${sign}${lamportsToSol(tr.lamports)}</span>`
+        : (t.delta != null ? `<span class="muted" title="残高変化">${t.delta > 0 ? '+' : ''}${lamportsToSol(t.delta)}</span>` : '-');
+      rows.push(`<tr class="${state.newSigs.has(t.signature) ? 'new' : ''}"><td>${date}</td><td class="dir ${dir}">${dirLabel}</td>`
+        + `<td>${addrCell(tr.src, me)}</td><td>${addrCell(tr.dst, me)}</td><td style="text-align:right" class="mono">${amount}</td>`
+        + `<td class="mono muted">${fee}</td><td>${status}</td><td>${sigCell}</td></tr>`);
+    }
+  }
+  state.newSigs.clear();
+  $('historyBody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="8" class="empty">該当する取引はありません</td></tr>';
+  $('moreBtn').style.display = state.hasMore ? '' : 'none';
+}
+
+$('tabs').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  state.filter = b.dataset.filter;
+  [...$('tabs').children].forEach((x) => x.classList.toggle('active', x === b));
+  renderHistory();
+};
+$('refreshBtn').onclick = () => { refreshBalance(); state.txs.clear(); state.oldestSig = null; loadHistory(true); };
+$('moreBtn').onclick = () => loadHistory(false);
+
+// ============================================================
+// 起動
+// ============================================================
+renderWalletList();
+setTimeout(renderWalletList, 800); // 拡張機能の注入が遅れる場合に備えて再検出
+setupConnection($('rpcInput').value).catch((e) => {
+  $('rpcDot').className = 'dot err'; $('rpcText').textContent = 'RPC 接続失敗';
+  $('fatal').style.display = 'block'; $('fatal').textContent = 'Devnet RPC に接続できません: ' + e.message;
+});
+})();
+</script>
+</body>
+</html>
